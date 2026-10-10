@@ -1,0 +1,490 @@
+
+# ============================================================
+# HEI-MED Retinal Exudate Detection Benchmark
+# Central experiment specification
+#
+# Source of truth: submitted manuscript and author-confirmed
+# experimental settings.
+#
+# Do not change settings merely to force agreement with
+# manuscript-reported results.
+# ============================================================
+
+project:
+  name: "ExudateDetection-Benchmark"
+  task: "Binary classification of HEI-MED exudate-positive status"
+  manuscript_title: >-
+    Retinal Exudate Detection in a Small HEI-MED Dataset:
+    Resource-Constrained Benchmarking of MobileNetV3 Models
+    Trained from Scratch and Handcrafted-Feature Classifiers
+  seed: 42
+  classification_threshold: 0.5
+
+  # This project is a research benchmark, not a clinical
+  # diagnostic or referral system.
+  clinical_validation: false
+
+
+# ------------------------------------------------------------
+# Dataset
+# ------------------------------------------------------------
+
+dataset:
+  name: "HEI-MED"
+  source_name: "Hamilton Eye Institute Macular Edema Dataset"
+  expected_total_images: 169
+  expected_positive_images: 54
+  expected_negative_images: 115
+
+  # The public release used in the manuscript did not provide
+  # patient-level identifiers. Splitting is therefore at image
+  # level, not verified patient level.
+  split_unit: "image"
+  patient_independence_verified: false
+
+  # Ground-truth annotation files must be used to derive labels.
+  # Never infer labels from filenames.
+  label_source: "official_ground_truth_annotations"
+
+  label_mapping:
+    positive: "One or more relevant annotated lesion regions"
+    negative: "No relevant annotated lesion regions"
+    label_type: "dataset_defined_exudate_positive_status"
+
+  # Do not redistribute source images unless the dataset terms
+  # explicitly permit it.
+  redistribute_images: false
+  usage_note: >-
+    Obtain HEI-MED from its verified original source and comply
+    with the source dataset's non-commercial research terms.
+
+
+# ------------------------------------------------------------
+# Primary train/validation/test experiment
+# ------------------------------------------------------------
+
+primary_split:
+  method: "stratified_random_split"
+  seed: 42
+  proportions:
+    train: 0.70
+    validation: 0.15
+    test: 0.15
+
+  expected_counts:
+    train: 118
+    validation: 25
+    test: 26
+
+  augmentation:
+    enabled: true
+    apply_to: "training_only"
+    validation_augmentation: false
+    test_augmentation: false
+
+  data_leakage_prevention:
+    split_original_images_before_augmentation: true
+    allow_augmented_images_across_splits: false
+    fit_preprocessing_on_training_data_only: true
+
+
+# ------------------------------------------------------------
+# Shared image preprocessing
+# ------------------------------------------------------------
+
+image:
+  height: 160
+  width: 160
+  channels: 3
+  color_format: "RGB"
+  pixel_range_before_model_normalization: [0.0, 1.0]
+
+  crop_fundus: false
+  mask_fundus: false
+  remove_black_background: false
+  illumination_normalization: false
+  color_normalization: false
+
+  # CNN training augmentation
+  augmentation:
+    horizontal_flip: true
+    rotation_degrees: [-15, 15]
+    brightness_factor: [0.8, 1.2]
+    contrast_factor: [0.8, 1.2]
+
+
+# ------------------------------------------------------------
+# Classification decision rule
+# ------------------------------------------------------------
+
+decision:
+  method: "fixed_probability_threshold"
+  threshold: 0.5
+  use_validation_to_tune_threshold: false
+  use_test_to_tune_threshold: false
+  positive_probability_column: 1
+
+
+# ------------------------------------------------------------
+# MobileNetV3 models
+# ------------------------------------------------------------
+
+cnn:
+  pretrained_weights: null
+  training_mode: "from_scratch"
+  optimizer: "AdamW"
+  learning_rate: 0.0001
+  weight_decay: 0.001
+  scheduler: "CosineAnnealingLR"
+  gradient_clip_norm: 1.0
+  loss: "class_weighted_cross_entropy"
+  label_smoothing: 0.1
+  weighted_random_sampler: true
+
+  # Exact scheduler parameters, batch size, early-stopping
+  # patience and minimum improvement must be confirmed from
+  # the original implementation if not specified elsewhere.
+  scheduler_parameters:
+    T_max: null
+    eta_min: null
+    step_frequency: null
+
+  batch_size: null
+
+  early_stopping:
+    enabled: true
+    monitored_metric: "validation_auc"
+    mode: "max"
+    patience: null
+    min_delta: null
+    save_best_checkpoint: true
+
+  models:
+    mobilenet_v3_small:
+      architecture: "MobileNetV3-Small"
+      pretrained: false
+      epochs: 20
+
+    mobilenet_v3_large:
+      architecture: "MobileNetV3-Large"
+      pretrained: false
+      epochs: 12
+
+  device:
+    requested: "auto"
+    allowed: ["cpu", "cuda"]
+    cpu_fallback: true
+
+
+# ------------------------------------------------------------
+# Handcrafted feature extraction
+# ------------------------------------------------------------
+
+features:
+  expected_total_features: 3042
+
+  input:
+    resize: [160, 160]
+    rgb_histogram_range: [0.0, 1.0]
+    grayscale_for_texture: true
+
+  hog:
+    enabled: true
+    orientations: 9
+    pixels_per_cell: [16, 16]
+    cells_per_block: [2, 2]
+    block_norm: "L2-Hys"
+    expected_features: 2916
+
+  lbp:
+    enabled: true
+    points: 24
+    radius: 3
+    method: "uniform"
+    histogram_bins: 26
+    expected_features: 26
+
+  rgb_histogram:
+    enabled: true
+    bins_per_channel: 32
+    channels: ["R", "G", "B"]
+    expected_features: 96
+
+  green_channel_statistics:
+    enabled: true
+    statistics:
+      - "mean"
+      - "standard_deviation"
+      - "percentile_90"
+      - "percentile_10"
+    expected_features: 4
+
+  standardization:
+    enabled: true
+    method: "StandardScaler"
+    fit_scope: "training_data_only"
+    cross_validation_fit_scope: "training_fold_only"
+
+
+# ------------------------------------------------------------
+# Classical machine learning classifiers
+# ------------------------------------------------------------
+
+classical_models:
+  logistic_regression:
+    enabled: true
+    penalty: "l2"
+    class_weight: "balanced"
+    max_iter: 2000
+    random_state: 42
+
+  svm_rbf:
+    enabled: true
+    kernel: "rbf"
+    C: 1.0
+    class_weight: "balanced"
+    probability: true
+    random_state: 42
+
+  random_forest:
+    enabled: true
+    n_estimators: 300
+    max_depth: 8
+    class_weight: "balanced"
+    random_state: 42
+
+
+# ------------------------------------------------------------
+# Evaluation metrics
+# ------------------------------------------------------------
+
+evaluation:
+  threshold: 0.5
+
+  metrics:
+    - "accuracy"
+    - "roc_auc"
+    - "sensitivity"
+    - "specificity"
+    - "precision"
+    - "f1_score"
+    - "false_positive_rate"
+    - "false_negative_rate"
+    - "confusion_matrix"
+
+  undefined_metric_policy: "record_as_undefined"
+
+  test_confidence_intervals:
+    confidence_level: 0.95
+    accuracy: "Wilson"
+    sensitivity: "Wilson"
+    precision: "Wilson"
+    auc: "Hanley-McNeil"
+    f1_score: "percentile_bootstrap"
+    bootstrap_repetitions: 5000
+    bootstrap_seed: 42
+
+
+# ------------------------------------------------------------
+# Classical-model cross-validation
+# ------------------------------------------------------------
+
+cross_validation:
+  enabled: true
+  model_scope: "classical_models_only"
+  method: "StratifiedKFold"
+  folds: 5
+  shuffle: true
+  random_state: 42
+
+  fit_scaler_within_each_training_fold: true
+  fit_classifier_within_each_training_fold: true
+  generate_one_out_of_fold_prediction_per_image: true
+
+  pooled_out_of_fold_analysis:
+    enabled: true
+    mcnemar_tests: true
+    bootstrap_confidence_intervals: true
+    bootstrap_repetitions: 5000
+    bootstrap_seed: 42
+
+  cnn_cross_validation:
+    enabled: false
+    reason: >-
+      The submitted manuscript did not report five-fold CNN
+      cross-validation because of the stated computational budget.
+
+
+# ------------------------------------------------------------
+# McNemar analysis
+# ------------------------------------------------------------
+
+mcnemar:
+  enabled: true
+  prediction_source: "pooled_out_of_fold_predictions"
+  comparisons:
+    - ["logistic_regression", "svm_rbf"]
+    - ["logistic_regression", "random_forest"]
+    - ["svm_rbf", "random_forest"]
+
+  # Must match the method used for the reported p-values.
+  test_variant: null
+
+
+# ------------------------------------------------------------
+# SHAP explainability
+# ------------------------------------------------------------
+
+shap:
+  enabled: true
+  model: "logistic_regression"
+  explainer: "LinearExplainer"
+
+  reference_data: "training_subset"
+  evaluation_images:
+    total_positive_images: 16
+    validation_positive_images: 8
+    test_positive_images: 8
+
+  feature_groups:
+    - "HOG"
+    - "LBP"
+    - "RGB_histogram"
+    - "green_channel_statistics"
+
+  spatial_mapping:
+    feature_group: "HOG"
+    grid_rows: 9
+    grid_columns: 9
+    sampling_interval_pixels: 16
+    upsample_to_image_resolution: true
+
+  cnn_gradcam:
+    enabled: false
+    note: "Not performed in the submitted study."
+
+
+# ------------------------------------------------------------
+# SHAP chance-level spatial baseline
+# ------------------------------------------------------------
+
+chance_baseline:
+  enabled: true
+  method: "random_spatial_block_sampling"
+  repetitions: 5000
+  random_seed: 42
+
+  grid_rows: 9
+  grid_columns: 9
+  match_selected_block_count_per_image: true
+
+  metrics:
+    - "dice"
+    - "intersection_over_union"
+    - "overlap_percentage"
+
+  # Recover the exact SHAP block-selection rule from the
+  # original analysis before claiming exact reproduction.
+  shap_block_selection_rule: null
+
+  comparison_test: "paired_t_test"
+
+
+# ------------------------------------------------------------
+# Decision curve analysis
+# ------------------------------------------------------------
+
+decision_curve_analysis:
+  enabled: true
+  exploratory_only: true
+  evaluation_split: "test"
+  expected_test_images: 26
+  expected_positive_images: 8
+
+  threshold_probabilities:
+    minimum: 0.01
+    maximum: 0.65
+    step: null
+
+  reference_strategies:
+    - "treat_all"
+    - "treat_none"
+
+  clinical_utility_claim: false
+
+
+# ------------------------------------------------------------
+# Computational performance
+# ------------------------------------------------------------
+
+benchmark:
+  cpu_inference: true
+  batch_size: 1
+  warmup_passes: 5
+  measured_passes: 30
+  report_mean: true
+  report_standard_deviation: true
+  confidence_level: 0.95
+
+  report:
+    - "parameter_count"
+    - "MACs"
+    - "FLOPs"
+    - "training_time"
+    - "feature_extraction_time"
+    - "classifier_inference_time"
+    - "end_to_end_inference_time"
+
+  flops_definition: "2_times_MACs"
+  model_evaluation_mode: true
+  gradient_computation_during_inference: false
+
+  # Exact original timing protocol and hardware details
+  # should be recorded during each new execution.
+  hardware_metadata_required: true
+
+
+# ------------------------------------------------------------
+# Outputs
+# ------------------------------------------------------------
+
+outputs:
+  save_per_image_predictions: true
+  save_probabilities: true
+  save_confusion_matrices: true
+  save_training_curves: true
+  save_model_checkpoints: true
+  save_feature_scalers: true
+  save_cross_validation_predictions: true
+  save_shap_outputs: true
+  save_dca_outputs: true
+  save_benchmark_results: true
+
+  generate_manuscript_tables: true
+  expected_tables: [1, 2, 3, 4, 5, 6]
+
+  generate_manuscript_figures: true
+  expected_figures: [1, 2, 3, 4]
+
+  compare_with_manuscript_reported_results: true
+  never_hardcode_reported_results: true
+  record_unexecuted_analyses: true
+
+
+# ------------------------------------------------------------
+# Reproducibility and reporting
+# ------------------------------------------------------------
+
+reproducibility:
+  seed: 42
+  record_python_version: true
+  record_package_versions: true
+  record_device_and_hardware: true
+  record_dataset_manifest: true
+  record_split_assignments: true
+  record_run_configuration: true
+
+  compare_results_without_forcing_agreement: true
+  report_missing_specifications: true
+  report_failed_stages: true
+  report_unexecuted_stages: true
