@@ -1,0 +1,353 @@
+
+# Experiment specification for ExudateDetection-Benchmark
+#
+# IMPORTANT:
+# This file records the intended protocol. It does not prove that
+# the experiments have been reproduced.
+# Recover unresolved parameters from original records before running
+# the affected stages.
+
+project:
+  name: "ExudateDetection-Benchmark"
+  manuscript_title: >-
+    Retinal Exudate Detection in a Small HEI-MED Dataset:
+    Resource-Constrained Benchmarking of MobileNetV3 Models
+    Trained from Scratch and Handcrafted-Feature Classifiers
+  seed: 42
+  status: "REPRODUCTION_IMPLEMENTATION_IN_PROGRESS"
+
+dataset:
+  name: "HEI-MED"
+  expected_total_images: 169
+  expected_positive_images: 54
+  expected_negative_images: 115
+
+  # Do not redistribute source images unless the data licence permits it.
+  data_root: "data/HEI-MED"
+  manifest_file: "data/HEI-MED/labels.csv"
+
+  # The label manifest must explicitly map each image to its label.
+  # Do not infer labels from filenames.
+  manifest_columns:
+    image_path: "image_path"
+    label: "label"
+
+  label_mapping:
+    negative_label: 0
+    positive_label: 1
+    positive_definition: >-
+      Dataset-defined exudate-positive image label.
+      Do not describe this automatically as referable maculopathy.
+
+  patient_identifiers_available: false
+  patient_independence_verified: false
+  split_unit: "image"
+  external_validation_available: false
+
+primary_split:
+  method: "stratified_train_validation_test"
+  random_seed: 42
+
+  proportions:
+    train: 0.70
+    validation: 0.15
+    test: 0.15
+
+  expected_counts:
+    train: 118
+    validation: 25
+    test: 26
+
+  # These are expected counts, not a substitute for checking the
+  # actual generated split manifest.
+  stratify_by_label: true
+  split_manifest_output: "results/reproduced/primary/split_manifest.csv"
+
+image:
+  height: 160
+  width: 160
+  color_mode: "RGB"
+  pretrained_weights: false
+
+  # The exact resize/interpolation behavior must match the original
+  # experiment implementation before reproduction is claimed.
+  resize_interpolation: null
+  aspect_ratio_policy: null
+  normalization_method: null
+
+augmentation:
+  apply_to_training_only: true
+  horizontal_flip: true
+  vertical_flip: true
+  rotation_degrees: 15
+  brightness_jitter: 0.20
+  contrast_jitter: 0.20
+  validation_augmentation: false
+  test_augmentation: false
+
+decision:
+  threshold: 0.5
+  threshold_source: "author-confirmed fixed probability threshold"
+  threshold_tuning_on_test_set: false
+
+cnn:
+  initialization: "from_scratch"
+  architectures:
+    - "mobilenet_v3_small"
+    - "mobilenet_v3_large"
+
+  optimizer:
+    name: "AdamW"
+    learning_rate: 0.0001
+    weight_decay: 0.001
+
+  loss:
+    name: "class_weighted_cross_entropy"
+    label_smoothing: 0.1
+    class_weight_calculation: null
+
+  sampler:
+    name: "weighted_random_sampler"
+    replacement: null
+    num_samples: null
+
+  gradient_clipping:
+    enabled: true
+    max_norm: 1.0
+
+  scheduler:
+    name: "CosineAnnealingLR"
+    parameters:
+      T_max: null
+      eta_min: null
+      step_frequency: null
+
+  training_epochs:
+    mobilenet_v3_small: 20
+    mobilenet_v3_large: 12
+
+  batch_size: null
+
+  early_stopping:
+    enabled: true
+    monitor: "validation_auc"
+    mode: "max"
+    patience: null
+    min_delta: null
+    checkpoint_selection: "best validation AUC"
+
+  # Verify the actual classifier head and output interpretation
+  # from the original implementation.
+  output_head_definition: null
+  probability_output_definition: null
+
+features:
+  expected_total_features: 3042
+
+  hog:
+    expected_features: 2916
+    orientations: 9
+    pixels_per_cell: [16, 16]
+    cells_per_block: [2, 2]
+    channel_policy: null
+    block_normalization: null
+
+  lbp:
+    expected_features: 26
+    method: "uniform"
+    points: 24
+    radius: 3
+    histogram_normalization: null
+
+  rgb_histogram:
+    expected_features: 96
+    channels: 3
+    bins_per_channel: 32
+    value_range: null
+    histogram_normalization: null
+
+  green_channel_statistics:
+    expected_features: 4
+    statistics:
+      - "mean"
+      - "standard_deviation"
+      - "90th_percentile"
+      - "10th_percentile"
+
+  feature_scaling:
+    method: "StandardScaler"
+    fit_on_training_data_only: true
+    apply_to_validation_test_and_cv_holdout: true
+
+classical_models:
+  logistic_regression:
+    penalty: "l2"
+    class_weight: "balanced"
+    max_iter: 2000
+    solver: null
+
+  svm:
+    kernel: "rbf"
+    C: 1.0
+    class_weight: "balanced"
+    probability_estimation: null
+
+  random_forest:
+    n_estimators: 300
+    max_depth: 8
+    class_weight: "balanced"
+    random_state: 42
+    remaining_parameters: null
+
+cross_validation:
+  scope: "classical_models"
+  folds: 5
+  method: "StratifiedKFold"
+  shuffle: true
+  random_seed: 42
+
+  scaler_fit_inside_each_training_fold: true
+  classifier_fit_inside_each_training_fold: true
+  one_out_of_fold_prediction_per_image: true
+  cnn_cross_validation_performed: false
+
+evaluation:
+  primary_split: "held_out_test_set"
+  fixed_threshold: 0.5
+
+  metrics:
+    - "accuracy"
+    - "precision"
+    - "sensitivity"
+    - "specificity"
+    - "recall"
+    - "f1_score"
+    - "roc_auc"
+    - "false_positive_rate"
+    - "false_negative_rate"
+
+  confidence_intervals:
+    confidence_level: 0.95
+    accuracy_method: "Wilson"
+    sensitivity_method: "Wilson"
+    precision_method: "Wilson"
+    auc_method: "Hanley-McNeil"
+    f1_method: "percentile_bootstrap"
+    bootstrap_repetitions: 5000
+    bootstrap_random_seed: 42
+
+  pooled_oof_analysis:
+    used_for_classical_models: true
+    mcnemar_test_variant: null
+    bootstrap_repetitions: 5000
+    bootstrap_random_seed: 42
+
+  test_predictions:
+    save_probabilities: true
+    save_thresholded_predictions: true
+    save_ground_truth_labels: true
+
+mcnemar:
+  # Must be recovered from the original analysis or selected and
+  # explicitly documented before this analysis is run.
+  test_variant: null
+
+shap:
+  method: "LinearExplainer"
+  model: "LogisticRegression"
+  explanation_data: "positive images from validation and test sets"
+  validation_positive_images: 8
+  test_positive_images: 8
+  total_positive_images: 16
+
+  spatial_mapping:
+    target_grid: [9, 9]
+    sampling_interval_pixels: 16
+    mapping_implementation_verified: false
+
+  nonlocalizable_features:
+    - "LBP"
+    - "RGB histogram"
+    - "green-channel statistics"
+
+  original_trained_models_available: false
+  independent_reimplementation: true
+
+chance_baseline:
+  method: "random_spatial_block_sampling"
+  repetitions: 5000
+  random_seed: 42
+
+  # Must match the implemented SHAP block-selection rule.
+  shap_block_selection_rule: null
+
+  match_selected_block_count_per_image: true
+  metrics:
+    - "dice"
+    - "iou"
+    - "overlap"
+
+  comparison_test: null
+
+decision_curve_analysis:
+  status: "exploratory"
+  data_scope: "held_out_test_set"
+  expected_test_size: 26
+  expected_positive_test_images: 8
+
+  threshold_probabilities:
+    minimum: 0.01
+    maximum: 0.65
+    step: null
+
+  clinical_utility_claim_permitted: false
+
+performance:
+  warmup_runs: 5
+  timed_repetitions: 30
+  report_mean_and_standard_deviation: true
+  report_95_percent_confidence_interval: true
+
+  timing_components:
+    feature_extraction: true
+    classifier_inference: true
+    cnn_inference: true
+    end_to_end: null
+
+  device_and_batch_size_must_be_recorded: true
+
+outputs:
+  root: "results/reproduced"
+  never_hardcode_reported_results: true
+
+  directories:
+    logs: "logs"
+    primary: "primary"
+    cross_validation: "cross_validation"
+    statistics: "statistics"
+    explainability: "explainability"
+    performance: "performance"
+    tables: "tables"
+    figures: "figures"
+    models: "models"
+    reproducibility: "reproducibility"
+
+  required_reproducibility_artifacts:
+    - "run_manifest.json"
+    - "split_manifest.csv"
+    - "software_versions.json"
+    - "experiment_config.yaml"
+
+reproducibility:
+  deterministic_seed: 42
+  save_configuration_copy: true
+  save_software_versions: true
+  save_input_file_hashes: true
+  save_split_manifest: true
+  save_model_checkpoints: true
+  save_test_predictions: true
+  save_cross_validation_predictions: true
+  overwrite_previous_results: false
+
+  # Change to true only after successful, documented verification.
+  scientific_reproduction_verified: false
