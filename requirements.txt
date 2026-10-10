@@ -1,8 +1,31 @@
+
+# Runtime dependencies for ExudateDetection-Benchmark
+# Initial target environment: Python 3.11 or 3.12
+# Validate this environment before claiming reproducibility.
+
+# Numerical computing
 numpy==1.26.4
-scikit-learn==1.7.2
+scipy==1.15.3
+pandas==2.2.3
+
+# Image loading and processing
+Pillow==11.1.0
 scikit-image==0.22.0
+
+# Classical machine learning
+scikit-learn==1.7.2
+
+# Deep learning
 torch==2.12.1
 torchvision==0.27.1
-matplotlib==3.9.2
+
+# Explainability
 shap==0.44.0
+
+# Plotting and progress display
+matplotlib==3.9.2
 tqdm==4.66.4
+
+# YAML configuration
+PyYAML==6.0.2
+
